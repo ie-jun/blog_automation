@@ -21,6 +21,7 @@
 - **Python**: 3.11
 - **AI**: Anthropic Claude API (`claude-sonnet-4-6`) — OpenAI 사용 안 함
 - **브라우저 자동화**: Playwright (Selenium 사용 안 함)
+- **크롤링 (Module 3 URL 분석)**: httpx + BeautifulSoup4 (1차) → Playwright 폴백 (2차)
 - **폴더 감시**: watchdog
 - **스케줄러**: APScheduler
 - **웹 서버 (Module 3 UI)**: FastAPI + Uvicorn (tmux 세션에서 백그라운드 실행)
@@ -63,12 +64,13 @@ blog_automation/
 │   │
 │   └── style/                        # Module 3: 스타일 가이드 업데이트
 │       ├── __init__.py
-│       ├── web_app.py                # FastAPI 앱 정의 (GET /, POST /feedback)
-│       ├── style_updater.py          # Claude API로 style_guide.json 업데이트
+│       ├── web_app.py                # FastAPI 앱 정의 (GET /, POST /feedback, POST /analyze-url 등)
+│       ├── style_updater.py          # Claude API로 style_guide.json 업데이트 + 병합
+│       ├── url_analyzer.py           # URL 크롤링 + Claude 스타일 추출 (신규)
 │       ├── history_manager.py        # style_guide_history.json 이력 관리
 │       ├── runner.py                 # Module 3 오케스트레이터
 │       └── templates/
-│           └── index.html            # 피드백 입력 웹 UI (단일 페이지)
+│           └── index.html            # 피드백 입력 + URL 분석 웹 UI (단일 페이지)
 │
 ├── core/
 │   ├── __init__.py
@@ -81,7 +83,13 @@ blog_automation/
 │   ├── style_guide.json              # 현재 스타일 가이드 (Module 2 읽기 / Module 3 쓰기)
 │   └── style_guide_history.json      # 스타일 변경 이력 누적
 │
-├── input/                            # 사용자 미디어 업로드 폴더 (watchdog 감시 대상)
+├── input/                            # 게시글별 서브폴더 생성 후 이미지 + done.txt 추가
+│   ├── .gitkeep
+│   └── <게시글명>/                   # 예: 을지로_카페_250220
+│       ├── img1.jpg
+│       └── done.txt                  # 완료 신호 — 이 파일 생성 시 초안 생성 트리거
+│
+├── output/                           # Module 2 생성 초안 로컬 저장 (검토 후 포스팅)
 │   └── .gitkeep
 │
 ├── logs/                             # 날짜별 로그 저장
@@ -120,8 +128,28 @@ class Settings(BaseSettings):
     web_host: str = "0.0.0.0"
     web_port: int = 8000
     naver_search_daily_limit: int = 1000  # 보수적 상한 (네이버 API 25,000/일 제한 대비)
+    neighbor_add_daily_limit: int = 20    # 이웃 신청 일일 상한 (계정 제재 방지)
     class Config:
         env_file = ".env"
+```
+
+---
+
+### .env 필수 변수
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+NAVER_CLIENT_ID=...
+NAVER_CLIENT_SECRET=...
+NAVER_ID=your_naver_id
+NAVER_PASSWORD=your_naver_password
+
+# 선택 (기본값 있음)
+CLAUDE_MODEL=claude-sonnet-4-6
+WEB_HOST=0.0.0.0
+WEB_PORT=8000
+NAVER_SEARCH_DAILY_LIMIT=1000
+NEIGHBOR_ADD_DAILY_LIMIT=20
 ```
 
 ---
@@ -168,12 +196,12 @@ run_module1.py
   └─ runner.run_neighbor_module()
        ├─ searcher.search_food_bloggers(keywords) → list[BloggerInfo]
        ├─ filter.filter_bloggers(bloggers)
-       │    ├─ check_recent_activity()      # 최근 30일 포스팅 3개 이상
-       │    ├─ check_food_content_ratio()   # 맛집 비중 50%+
-       │    └─ check_sponsorship_experience() # 협찬 키워드 탐지
+       │    ├─ check_food_content_ratio()       # 맛집 비중 50%+ (추가 API 호출 없음)
+       │    ├─ check_sponsorship_experience()   # 협찬 키워드 탐지 (추가 API 호출 없음)
+       │    └─ check_recent_activity()          # 최근 30일 포스팅 3개 이상 (API 재호출 가능)
        ├─ automator.add_neighbors_batch(filtered)
        │    └─ BrowserSession → naver_login() → add_neighbor(page, blog_id)
-       └─ runner.save_result() → logs/neighbor_YYYYMMDD.json
+       └─ runner.save_result() → logs/neighbor_YYYYMMDD.json  # 이웃 신청 이력 기록
 ```
 
 **주요 함수:**
@@ -204,24 +232,28 @@ run_module1.py
 run_module2.py
   └─ watcher.start_watching(INPUT_DIR)   # blocking
        └─ InputFolderHandler.on_created(event)
-            └─ runner.run_draft_module(file_paths)
-                 ├─ media_processor.process_images() → list[ProcessedMedia]
-                 │    ├─ resize_image()        # Pillow 1024px
-                 │    └─ encode_to_base64()
-                 ├─ draft_generator.generate_draft(media_list, style_guide)
-                 │    ├─ load_style_guide()
-                 │    ├─ build_vision_prompt(style_guide)
-                 │    └─ ClaudeClient.call_vision() → 초안 텍스트
-                 └─ poster.post_to_naver_blog(title, content, images)
-                      ├─ BrowserSession → naver_login()
-                      ├─ navigate_to_write_page()
-                      ├─ fill_title_and_content()
-                      ├─ upload_images()
-                      └─ set_visibility_private()  # "나만보기"로 발행
+            └─ event.src_path.endswith("done.txt") 감지
+                 └─ runner.run_draft_module(folder_path)  # done.txt가 위치한 서브폴더 처리
+                      ├─ media_processor.process_images() → list[ProcessedMedia]
+                      │    ├─ resize_image()        # Pillow 1024px
+                      │    └─ encode_to_base64()
+                      ├─ draft_generator.generate_draft(media_list, style_guide)
+                      │    ├─ load_style_guide()
+                      │    ├─ build_vision_prompt(style_guide)
+                      │    └─ ClaudeClient.call_vision() → 초안 텍스트
+                      ├─ runner.save_draft_to_output() → output/<폴더명>_draft_YYYYMMDD_HHMMSS.md
+                      └─ poster.post_to_naver_blog(title, content, images)
+                           ├─ BrowserSession → naver_login()
+                           ├─ navigate_to_write_page()
+                           ├─ fill_title_and_content()
+                           ├─ upload_images()
+                           └─ set_visibility_private()  # "나만보기"로 발행
 ```
 
 **주요 함수:**
 - `watcher.InputFolderHandler(FileSystemEventHandler).on_created(event)`
+  - `done.txt` 파일 생성 이벤트 감지 (디바운스 타이머 없음)
+  - 해당 서브폴더 내 미디어 파일 수집 → `runner.run_draft_module(folder_path)` 호출
 - `watcher.start_watching(input_dir: Path) -> None`
 - `media_processor.process_images(file_paths: list[Path]) -> list[ProcessedMedia]`
 - `media_processor.resize_image(path: Path, max_size=1024) -> bytes`
@@ -230,8 +262,12 @@ run_module2.py
 - `draft_generator.load_style_guide() -> dict`
 - `draft_generator.build_vision_prompt(style_guide: dict) -> str`
 - `poster.post_to_naver_blog(title: str, content: str, image_paths: list[Path]) -> str`
+  - 반환값: 포스팅된 블로그 글 URL
+  - 주의: 네이버 SmartEditor는 iframe 기반 → `page.frame()` 또는 `page.frame_locator()` 사용
 - `poster.set_visibility_private(page: Page) -> None`
-- `runner.run_draft_module(file_paths: list[Path]) -> DraftResult`
+- `runner.save_draft_to_output(content: str, title: str) -> Path`
+  - output/<폴더명>_draft_YYYYMMDD_HHMMSS.md 로 저장 (폴더명으로 게시글 식별)
+- `runner.run_draft_module(folder_path: Path) -> DraftResult`
 
 지원 확장자: `.jpg`, `.jpeg`, `.png`, `.webp`
 
@@ -259,33 +295,75 @@ POST /feedback  {"feedback": "도입부가 너무 딱딱해"}
        └─ history_manager.save_to_history(old, new, feedback)
             └─ style_guide_history.json에 entry 추가
   └─ JSON 응답 반환: {success, diff_summary, updated_at}
+
+POST /analyze-url  {"url": "https://blog.naver.com/xxx/123"}
+  └─ runner.run_url_analysis_module(url)
+       ├─ url_analyzer.normalize_naver_blog_url(url) → (mobile_url, blog_id, log_no)
+       ├─ url_analyzer.fetch_post_content(url)
+       │    ├─ 1차: _fetch_via_httpx(mobile_url) → CrawledPost
+       │    └─ 실패 시: _fetch_via_playwright(url) → CrawledPost  # BrowserSession 재사용
+       ├─ style_updater.load_current_guide()
+       ├─ url_analyzer.analyze_style_from_post(post, current_guide, client)
+       │    ├─ build_style_extraction_prompt(post, current_guide)
+       │    └─ ClaudeClient.call_text() → JSON 파싱 → ExtractedStyle
+       └─ session_id 발급 → _analysis_cache[session_id] 저장 (TTL 10분)
+  └─ UrlAnalyzeResponse 반환: {success, post_title, analysis_summary, style_sections, session_id}
+
+POST /apply-style  {"session_id": "...", "selected_sections": ["tone", "hashtags"]}
+  └─ runner.run_style_merge_module(extracted_style, selected_sections, source_url)
+       ├─ style_updater.merge_extracted_style(current, extracted, selected_sections)
+       ├─ style_updater.save_guide(new_guide)
+       └─ history_manager.save_to_history(old, new, f"URL 분석 적용: {source_url}")
+  └─ ApplyStyleResponse 반환: {success, applied_sections, diff_summary, updated_at}
 ```
 
 **web_app.py 라우트:**
 ```python
-GET  /            → index.html (피드백 입력 폼)
-POST /feedback    → {"feedback": str} 수신 → run_style_module() 호출
-GET  /history     → style_guide_history.json 목록 반환 (최근 N건)
-GET  /guide       → 현재 style_guide.json 내용 반환
+GET  /                              → index.html (피드백 입력 폼 + URL 분석 UI)
+POST /feedback                      → {"feedback": str} → run_style_module() 호출
+GET  /history                       → style_guide_history.json 목록 반환 (최근 N건)
+GET  /guide                         → 현재 style_guide.json 내용 반환
+POST /analyze-url                   → {"url": str} → run_url_analysis_module() 호출
+POST /apply-style                   → {"session_id": str, "selected_sections": list[str]}
+GET  /analyze-url/status/{session_id} → {"valid": bool, "expires_in_seconds": int}
 ```
 
-**index.html 구성 (단일 페이지):**
-- 피드백 텍스트 입력 textarea
-- 제출 버튼 → fetch POST /feedback
-- 처리 결과 (diff_summary) 인라인 표시
-- 현재 스타일 가이드 요약 표시 (GET /guide)
+**세션 캐시 (URL 분석용):**
+- `_analysis_cache: dict[str, AnalysisSession]` — 인메모리 dict (단일 프로세스, Redis 불필요)
+- TTL: 600초 (10분), 만료 시 404 반환 후 재분석 유도
+
+**index.html 구성 (단일 페이지, 두 섹션):**
+- [섹션 1] 피드백 텍스트 입력: textarea + 제출 버튼 → fetch POST /feedback
+- [섹션 2] URL 스타일 분석: 3단계 상태 머신
+  - IDLE: URL 입력 필드 + "분석 시작" 버튼
+  - LOADING: 스피너 + 크롤링/분석 진행 메시지
+  - REVIEW: 섹션별 체크박스 카드 (신뢰도 배지: >80% 초록 / >50% 노랑 / 이하 빨강)
+  - DONE: 적용된 섹션 목록 + diff_summary 인라인 표시
 
 **주요 함수:**
-- `web_app.py`: FastAPI 앱 인스턴스, Jinja2 템플릿 마운트
+- `web_app.py`: FastAPI 앱 인스턴스, Jinja2 템플릿 마운트, `_analysis_cache` 세션 관리
 - `style_updater.load_current_guide() -> dict`
 - `style_updater.update_style_guide(feedback: str, current_guide: dict) -> dict`
 - `style_updater.build_update_prompt(feedback: str, current_guide: dict) -> str`
 - `style_updater.save_guide(new_guide: dict) -> None`  — tmp 파일 → rename (atomic)
+- `style_updater.merge_extracted_style(current_guide, extracted_style, selected_sections, merge_strategy="selective") -> tuple[dict, str]`
+  - `selected_sections`에 포함된 섹션만 처리, null 값 무시, `_confidence` 키 제거 후 저장
 - `history_manager.save_to_history(old_guide, new_guide, feedback: str) -> None`
 - `history_manager.load_history() -> list[HistoryEntry]`
+- `url_analyzer.normalize_naver_blog_url(url: str) -> tuple[str, str, str]`
+  - 정규식 `r'blog\.naver\.com/([^/]+)/(\d+)'` + PostView.naver?blogId=x&logNo=y 형식 처리
+- `url_analyzer.fetch_post_content(url: str) -> CrawledPost`  — httpx 1차, Playwright 폴백
+  - HTML 선택자: `.se-main-container` (SmartEditor ONE) → `#postViewArea` (구 에디터)
+- `url_analyzer.analyze_style_from_post(post, current_guide, claude_client) -> ExtractedStyle`
+  - 본문 3000자 제한, `ClaudeClient.call_text()` 재사용
+- `url_analyzer.build_style_extraction_prompt(post, current_guide) -> str`
+  - 현재 style_guide 키 구조 명시 → Claude가 동일 구조 + `_confidence` 포함 응답
 - `runner.run_style_module(feedback: str) -> StyleUpdateResult`
+- `runner.run_url_analysis_module(url: str) -> UrlAnalysisResult`  — async
+- `runner.run_style_merge_module(extracted_style, selected_sections, source_url) -> StyleMergeResult`
 
 **HistoryEntry 구조:** `{timestamp, feedback, old_guide, new_guide, diff_summary}`
+- URL 분석 적용 시 feedback 필드: `f"URL 분석 적용: {source_url} → {', '.join(selected_sections)} 섹션"`
 
 **tmux 백그라운드 실행 방법:**
 ```bash
@@ -308,8 +386,8 @@ tmux ls
 ```json
 {
   "version": "1.0",
-  "created_at": "2026-02-19T00:00:00",
-  "updated_at": "2026-02-19T00:00:00",
+  "created_at": "2026-02-20T00:00:00",
+  "updated_at": "2026-02-20T00:00:00",
   "tone": {
     "overall": "친근하고 솔직한 후기 스타일",
     "formality": "반말 (해체형)",
@@ -385,6 +463,7 @@ Module 3 → Module 2: style_guide.json을 통한 단방향 흐름
 | 3 | Module 2 (`modules/draft/`), `run_module2.py` | 핵심 기능, Playwright 포스팅 난이도 최고 |
 | 4 | Module 1 (`modules/neighbor/`), `run_module1.py` | 독립 기능 |
 | 5 | `scheduler.py`, 통합 테스트 | 마무리 |
+| 6 | URL 스타일 분석 (`url_analyzer.py`, `/analyze-url` 라우트, UI 추가) | Phase 2 완료 후 |
 
 ---
 
@@ -421,12 +500,17 @@ python-dotenv
 pydantic
 pydantic-settings
 
+# HTML 파싱 (Module 3 URL 스타일 분석)
+beautifulsoup4
+lxml
+
 # 유틸리티
 aiofiles
 loguru
 tenacity
 ```
 
+추가 항목: `watchdog`, `apscheduler`, `jinja2`, `beautifulsoup4`, `lxml`
 제거 항목: `openai`, `selenium`, `webdriver-manager`
 
 ---

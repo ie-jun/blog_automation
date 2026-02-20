@@ -1,44 +1,38 @@
-# =============================
-# LLM / AI (이미지 분석 & 리뷰 생성)
-# =============================
+# AI
 anthropic               # Claude Vision으로 이미지 → 리뷰 텍스트 생성
-openai                  # GPT-4o Vision 대체 사용 시
 
-# =============================
 # 이미지 처리
-# =============================
 Pillow                  # 이미지 리사이즈, 포맷 변환
-python-multipart        # 이미지 파일 업로드 처리
 
-# =============================
-# 네이버 블로그 자동화
-# =============================
-selenium                # 네이버 블로그 포스팅 자동화 (Naver API 미지원 우회)
-webdriver-manager       # ChromeDriver 자동 설치/관리
-playwright              # selenium 대안 (더 안정적인 브라우저 자동화)
+# 브라우저 자동화
+playwright              # 네이버 블로그 포스팅 / 이웃 신청 자동화
 
-# =============================
-# HTTP 요청 / 네이버 Open API
-# =============================
+# HTTP / 네이버 Open API
 requests                # 네이버 Open API 호출
 httpx                   # 비동기 HTTP 클라이언트
 
-# =============================
-# 웹 서버 (이미지 업로드 UI)
-# =============================
-fastapi                 # 이미지 업로드 받는 백엔드 서버
-uvicorn[standard]       # FastAPI ASGI 서버
+# 폴더 감시
+watchdog                # input/ 폴더 실시간 감시 (Module 2)
 
-# =============================
-# 환경변수 / 설정 관리
-# =============================
+# 스케줄러
+apscheduler             # Module 1 매일 자동 실행
+
+# 웹 서버 (Module 3 UI)
+fastapi                 # 스타일 가이드 피드백 UI 서버
+uvicorn[standard]       # FastAPI ASGI 서버
+jinja2                  # HTML 템플릿 렌더링
+python-multipart        # 폼 데이터 파싱
+
+# 설정 관리
 python-dotenv           # .env 파일로 API Key 관리
 pydantic                # 설정값 유효성 검증
 pydantic-settings       # BaseSettings로 환경변수 관리
 
-# =============================
+# HTML 파싱 (Module 3 URL 스타일 분석)
+beautifulsoup4          # 네이버 블로그 HTML 파싱
+lxml                    # BeautifulSoup4 파서 백엔드
+
 # 유틸리티
-# =============================
 aiofiles                # 비동기 파일 I/O
 loguru                  # 로깅
 tenacity                # API 호출 재시도 로직
