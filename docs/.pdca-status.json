@@ -1,0 +1,34 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2026-03-01T11:20:00.000Z",
+  "activeFeatures": [],
+  "primaryFeature": null,
+  "features": {
+    "blog-automation-system": {
+      "phase": "archived",
+      "matchRate": 93,
+      "iterationCount": 1,
+      "startedAt": "2026-02-20T10:12:39.833Z",
+      "archivedAt": "2026-03-01T11:20:00.000Z",
+      "archivedTo": "docs/archive/2026-03/blog-automation-system/"
+    }
+  },
+  "pipeline": {
+    "currentPhase": 1,
+    "level": "Dynamic",
+    "phaseHistory": []
+  },
+  "session": {
+    "startedAt": "2026-02-20T10:12:39.833Z",
+    "onboardingCompleted": false,
+    "lastActivity": "2026-03-01T11:20:00.000Z"
+  },
+  "history": [
+    {
+      "timestamp": "2026-03-01T11:20:00.000Z",
+      "feature": "blog-automation-system",
+      "phase": "archived",
+      "action": "archived_with_summary"
+    }
+  ]
+}

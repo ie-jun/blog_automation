@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>블로그 스타일 가이드 관리</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+    .container { max-width: 800px; margin: 40px auto; padding: 0 20px; }
+    h1 { font-size: 1.6rem; margin-bottom: 8px; color: #1a73e8; }
+    .subtitle { font-size: 0.9rem; color: #666; margin-bottom: 32px; }
+    .card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    h2 { font-size: 1.1rem; margin-bottom: 16px; color: #333; }
+    textarea { width: 100%; min-height: 100px; padding: 12px; border: 1px solid #ddd;
+               border-radius: 8px; resize: vertical; font-size: 0.95rem; }
+    input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid #ddd;
+                         border-radius: 8px; font-size: 0.95rem; }
+    .btn { display: inline-block; padding: 10px 24px; background: #1a73e8; color: #fff;
+           border: none; border-radius: 8px; cursor: pointer; font-size: 0.95rem;
+           margin-top: 12px; }
+    .btn:hover { background: #1558b0; }
+    .btn-outline { background: #fff; color: #1a73e8; border: 1px solid #1a73e8; }
+    .btn-outline:hover { background: #e8f0fe; }
+    .btn-green { background: #34a853; }
+    .btn-green:hover { background: #2d8f47; }
+    .result { margin-top: 16px; padding: 12px; background: #e8f5e9; border-radius: 8px;
+              font-size: 0.9rem; display: none; }
+    .result.error { background: #fce8e6; }
+    .spinner { display: none; margin-top: 12px; color: #666; font-size: 0.9rem; }
+
+    /* URL Analysis states */
+    #url-review { display: none; }
+    .section-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px;
+                    margin-bottom: 10px; }
+    .section-card label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+    .section-card input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+    .section-name { font-weight: 600; margin-bottom: 4px; }
+    .section-preview { font-size: 0.85rem; color: #555; white-space: pre-wrap; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem;
+             font-weight: 600; margin-left: 8px; }
+    .badge-high { background: #d4edda; color: #155724; }
+    .badge-mid  { background: #fff3cd; color: #856404; }
+    .badge-low  { background: #f8d7da; color: #721c24; }
+
+    /* History */
+    .history-item { border-left: 3px solid #1a73e8; padding: 10px 14px;
+                    margin-bottom: 10px; background: #f8f9ff; border-radius: 0 8px 8px 0; }
+    .history-time { font-size: 0.8rem; color: #888; }
+    .history-feedback { margin: 4px 0; }
+    .history-diff { font-size: 0.85rem; color: #555; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>블로그 스타일 가이드 관리</h1>
+  <p class="subtitle">피드백을 입력하거나 공개 포스팅 URL을 분석하여 스타일 가이드를 업데이트하세요.</p>
+
+  <!-- Section 1: Feedback -->
+  <div class="card">
+    <h2>✏️ 피드백으로 스타일 업데이트</h2>
+    <textarea id="feedback-text" placeholder="예: 도입부가 너무 딱딱해요. 더 친근하게 써주세요."></textarea>
+    <button class="btn" onclick="submitFeedback()">피드백 제출</button>
+    <div class="spinner" id="feedback-spinner">처리 중...</div>
+    <div class="result" id="feedback-result"></div>
+  </div>
+
+  <!-- Section 2: URL Analysis -->
+  <div class="card">
+    <h2>🔍 URL 스타일 분석</h2>
+    <div id="url-idle">
+      <input type="text" id="url-input" placeholder="https://blog.naver.com/블로거ID/포스팅번호" />
+      <button class="btn" onclick="startAnalysis()">분석 시작</button>
+    </div>
+    <div class="spinner" id="url-spinner">크롤링 및 분석 중... 잠시 기다려 주세요.</div>
+    <div class="result error" id="url-error"></div>
+
+    <div id="url-review">
+      <p style="margin-bottom:12px; font-size:0.9rem; color:#555;">
+        아래 섹션 중 스타일 가이드에 적용할 항목을 선택하세요.
+      </p>
+      <div id="sections-list"></div>
+      <button class="btn btn-green" onclick="applySelected()">선택 섹션 적용</button>
+      <button class="btn btn-outline" onclick="resetUrlAnalysis()" style="margin-left:8px;">취소</button>
+      <div class="result" id="apply-result"></div>
+    </div>
+  </div>
+
+  <!-- Section 3: History -->
+  <div class="card">
+    <h2>📋 변경 이력</h2>
+    <button class="btn btn-outline" onclick="loadHistory()">이력 새로고침</button>
+    <div id="history-list" style="margin-top:16px;"></div>
+  </div>
+</div>
+
+<script>
+  let _sessionId = null;
+  let _extractedSections = {};
+
+  // ── Feedback ──────────────────────────────────────────────────────────────
+  async function submitFeedback() {
+    const text = document.getElementById('feedback-text').value.trim();
+    if (!text) { alert('피드백을 입력해주세요.'); return; }
+
+    showSpinner('feedback-spinner');
+    hideResult('feedback-result');
+
+    try {
+      const res = await fetch('/feedback', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({feedback: text}),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showResult('feedback-result', `✅ 업데이트 완료\n${data.diff_summary}`, false);
+        document.getElementById('feedback-text').value = '';
+      } else {
+        showResult('feedback-result', `❌ 오류: ${data.detail}`, true);
+      }
+    } catch (e) {
+      showResult('feedback-result', `❌ 네트워크 오류: ${e}`, true);
+    } finally {
+      hideSpinner('feedback-spinner');
+    }
+  }
+
+  // ── URL Analysis ──────────────────────────────────────────────────────────
+  async function startAnalysis() {
+    const url = document.getElementById('url-input').value.trim();
+    if (!url) { alert('URL을 입력해주세요.'); return; }
+
+    showSpinner('url-spinner');
+    hideResult('url-error');
+    document.getElementById('url-review').style.display = 'none';
+
+    try {
+      const res = await fetch('/analyze-url', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail);
+
+      _sessionId = data.session_id;
+      _extractedSections = data.style_sections;
+      renderSections(data.style_sections, data.post_title);
+      document.getElementById('url-review').style.display = 'block';
+    } catch (e) {
+      showResult('url-error', `❌ 분석 실패: ${e.message}`, true);
+    } finally {
+      hideSpinner('url-spinner');
+    }
+  }
+
+  function renderSections(sections, title) {
+    const container = document.getElementById('sections-list');
+    container.innerHTML = `<p style="font-weight:600;margin-bottom:12px;">📄 ${title}</p>`;
+
+    Object.entries(sections).forEach(([key, value]) => {
+      if (key.startsWith('_')) return;
+      const confidence = typeof value === 'object' && value._confidence != null
+        ? value._confidence : null;
+      const badgeClass = confidence == null ? '' : confidence > 0.8 ? 'badge-high'
+        : confidence > 0.5 ? 'badge-mid' : 'badge-low';
+      const badgeLabel = confidence == null ? '' : `${Math.round(confidence * 100)}%`;
+
+      const preview = JSON.stringify(value, null, 2)
+        .replace(/"_confidence":[^,\n}]+,?\n?/g, '')
+        .slice(0, 200);
+
+      container.innerHTML += `
+        <div class="section-card">
+          <label>
+            <input type="checkbox" name="section" value="${key}" checked />
+            <div>
+              <div class="section-name">${key}
+                ${confidence != null ? `<span class="badge ${badgeClass}">${badgeLabel}</span>` : ''}
+              </div>
+              <div class="section-preview">${preview}</div>
+            </div>
+          </label>
+        </div>`;
+    });
+  }
+
+  async function applySelected() {
+    const checked = [...document.querySelectorAll('input[name="section"]:checked')]
+      .map(el => el.value);
+    if (!checked.length) { alert('적용할 섹션을 선택해주세요.'); return; }
+
+    try {
+      const res = await fetch('/apply-style', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_id: _sessionId, selected_sections: checked}),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showResult('apply-result', `✅ 적용 완료\n${data.diff_summary}`, false);
+        document.getElementById('url-input').value = '';
+      } else {
+        showResult('apply-result', `❌ 오류: ${data.detail}`, true);
+      }
+    } catch (e) {
+      showResult('apply-result', `❌ 네트워크 오류: ${e}`, true);
+    }
+  }
+
+  function resetUrlAnalysis() {
+    document.getElementById('url-review').style.display = 'none';
+    document.getElementById('url-input').value = '';
+    _sessionId = null;
+    _extractedSections = {};
+  }
+
+  // ── History ───────────────────────────────────────────────────────────────
+  async function loadHistory() {
+    const res = await fetch('/history?limit=10');
+    const data = await res.json();
+    const container = document.getElementById('history-list');
+    if (!data.length) { container.innerHTML = '<p style="color:#888;">이력이 없습니다.</p>'; return; }
+
+    container.innerHTML = data.map(entry => `
+      <div class="history-item">
+        <div class="history-time">${entry.timestamp}</div>
+        <div class="history-feedback">${entry.feedback}</div>
+        <div class="history-diff">${entry.diff_summary}</div>
+      </div>`).join('');
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function showSpinner(id) { document.getElementById(id).style.display = 'block'; }
+  function hideSpinner(id) { document.getElementById(id).style.display = 'none'; }
+  function showResult(id, msg, isError) {
+    const el = document.getElementById(id);
+    el.style.display = 'block';
+    el.className = 'result' + (isError ? ' error' : '');
+    el.innerText = msg;
+  }
+  function hideResult(id) { document.getElementById(id).style.display = 'none'; }
+
+  // Auto-load history on page load
+  loadHistory();
+</script>
+</body>
+</html>

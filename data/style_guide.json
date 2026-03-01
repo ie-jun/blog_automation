@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "created_at": "2026-02-20T00:00:00",
+  "updated_at": "2026-02-20T00:00:00",
+  "tone": {
+    "overall": "친근하고 솔직한 후기 스타일",
+    "formality": "반말 (해체형)",
+    "energy": "활발하고 긍정적"
+  },
+  "structure": {
+    "intro": {
+      "style": "장소 방문 계기나 에피소드로 시작",
+      "length": "2-3문장"
+    },
+    "body": {
+      "sections": ["분위기/인테리어", "메뉴 소개", "맛 평가", "가격/가성비", "서비스"],
+      "style": "각 섹션별 소제목 사용",
+      "length_per_section": "3-5문장"
+    },
+    "conclusion": {
+      "style": "재방문 의사 및 추천 대상 언급으로 마무리",
+      "length": "2-3문장"
+    }
+  },
+  "vocabulary": {
+    "preferred_expressions": ["진짜 맛있어", "강추", "꼭 가봐"],
+    "avoid_expressions": ["맛있었습니다", "좋았습니다", "방문했습니다"]
+  },
+  "hashtags": {
+    "count": 10,
+    "always_include": ["#맛집", "#서울맛집"],
+    "style": "한글 태그 위주, 영어 태그 최소화"
+  },
+  "formatting": {
+    "use_emoji": true,
+    "emoji_frequency": "섹션당 1-2개",
+    "line_breaks": "단락 사이 1줄 공백",
+    "bold_usage": "메뉴명, 가격, 중요 포인트"
+  },
+  "image_placement": {
+    "order": "분위기 → 메뉴 → 디저트/음료 → 영수증",
+    "caption_style": "짧고 감성적인 한 줄 설명"
+  },
+  "metadata": {
+    "target_length_chars": 800,
+    "language": "한국어",
+    "blog_category": "맛집리뷰"
+  }
+}
